@@ -1,28 +1,69 @@
 # Movement Prototype – Devlog
 
-## Context
-This project is part of Phase 2 - Prototype.
+## Overview
 
-The goal is to explore different movement systems in Unity 2D.
+This prototype is part of my Unity learning roadmap, focusing on understanding different movement systems in 2D.
 
-## Features Implemented
-- Arcade movement (instant velocity)
-- Platformer movement (acceleration-based)
-- Better falling
-- Coyote time
-- Jump buffer
-- Variable jump height
+The goal is not to build a complete game, but to explore how movement “feels” and how different approaches affect player control.
 
-## Technical Challenges
-- Handling input between Update and FixedUpdate
-- Implementing reliable ground detection with BoxCast, visualizing by OnDrawGizmosSelected 
-- Managing jump timing (coyote time & jump buffer)
+---
 
-## Observations
-- Movement feel depends more on tuning than complexity
-- Coyote time significantly improves player experience
-- Input timing can easily cause bugs if not handled carefully
+## Implemented Systems
+
+### Movement Modes
+
+* **Arcade Mode**: Direct velocity control, instant response
+* **Platformer Mode**: Enhanced jump system with game-feel improvements
+* **Physics Mode**: Force-based movement with inertia
+
+---
+
+### Platformer Features
+
+* Coyote Time
+* Jump Buffer
+* Variable Jump Height
+* Better Falling (faster fall than rise)
+
+---
+
+### Technical Highlights
+
+* Input handled in Update, physics in FixedUpdate
+* Ground detection using BoxCast
+* Separation of movement logic by mode
+* Handling edge cases when switching modes (gravity & velocity reset)
+
+---
+
+## Challenges & Learnings
+
+### 1. Input Timing
+
+Using `wasPressedThisFrame` inside FixedUpdate caused missed inputs.
+→ Solved by capturing input in Update and consuming it in FixedUpdate.
+
+### 2. Game Feel vs Physics
+
+Initially, jump felt “floaty”.
+→ Learned that gravity scaling is more important than jump force.
+
+### 3. System Design
+
+At first, all features applied to all modes.
+→ Refactored to separate Arcade / Platformer / Physics behaviors.
+
+---
+
+## Key Takeaways
+
+* Game feel comes mostly from tuning, not complexity
+* Physics-based movement is less controllable but more realistic
+* Platformer systems often “assist” the player (coyote time, buffer)
+
+---
 
 ## Next Steps
-- Tune movement feel
-- Implement Physics-based movement mode
+
+* Build a Combat Prototype
+* Apply movement knowledge into real gameplay scenarios
