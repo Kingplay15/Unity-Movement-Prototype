@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,9 +17,10 @@ public class Movement : MonoBehaviour
     float moveInput = 0f;
     [SerializeField] float moveSpeed = 1f;
     [SerializeField] float accelRate = 10f; //For acceleration
+    [SerializeField] float linearDrag = 1f; //For deceleration
 
     [SerializeField] float jumpForce = 2f;
-    //bool jumpRequested = false;
+    bool jumpRequested = false;
     bool jumpReleased = false;
     bool isGrounded = false;
 
@@ -35,31 +37,68 @@ public class Movement : MonoBehaviour
     [SerializeField] float jumpBufferTime = 0.1f; // Time before landing where jump input is buffered
     float jumpBufferCounter = 0f;
 
+    [SerializeField] UIManagement UIManager;
+
+
     void Awake()
     {
+        mode = MovementMode.Arcade;
         rb = GetComponent<Rigidbody2D>();
         baseGravity = rb.gravityScale;
+        rb.linearDamping = linearDrag;
+    }
+
+    void Start()
+    {
+        UIManager.UpdateMode((int)mode + 1);
     }
 
     void Update()
+    {
+        CheckMoveInput();
+        CheckSwitchModeInput();
+
+        // Record a jump request (transient press)
+        if (!jumpRequested && Keyboard.current.spaceKey.wasPressedThisFrame)
+            jumpRequested = true;
+
+        // Set / decay the jump buffer based on the raw input event (wasPressedThisFrame).
+        JumpBuffer();
+
+        // Record a jump release (transient release)
+        if (!isGrounded && Keyboard.current.spaceKey.wasReleasedThisFrame)
+            jumpReleased = true;
+    }
+
+    void CheckMoveInput()
     {
         moveInput = 0f;
         if (Keyboard.current.aKey.isPressed)
             moveInput = -1f;
         if (Keyboard.current.dKey.isPressed)
             moveInput = 1f;
+    }
 
-        // Record a jump request (transient press)
-        //if (!jumpRequested && Keyboard.current.spaceKey.wasPressedThisFrame)
-        //    jumpRequested = true;
-
-        // Set / decay the jump buffer based on the raw input event (wasPressedThisFrame).
-        JumpBuffer();
-
-        if (!isGrounded && Keyboard.current.spaceKey.wasReleasedThisFrame)
-            jumpReleased = true;
-
-        Debug.Log(isGrounded ? "Grounded" : "Airborne");
+    void CheckSwitchModeInput()
+    {
+        if (Keyboard.current.digit1Key.wasPressedThisFrame)
+        {
+            mode = MovementMode.Arcade;
+            rb.linearVelocity = Vector2.zero; // Reset velocity when switching modes to prevent carryover
+            UIManager.UpdateMode(1);
+        }
+        if (Keyboard.current.digit2Key.wasPressedThisFrame)
+        {
+            mode = MovementMode.Platformer;
+            rb.linearVelocity = Vector2.zero;
+            UIManager.UpdateMode(2);
+        }
+        if (Keyboard.current.digit3Key.wasPressedThisFrame)
+        {
+            mode = MovementMode.Physics;
+            rb.linearVelocity = Vector2.zero;
+            UIManager.UpdateMode(3);
+        }
     }
 
     void Coyote()
@@ -87,18 +126,14 @@ public class Movement : MonoBehaviour
 
     void FixedUpdate()
     {
-        // Physics-grounded check and coyote timing should run in FixedUpdate for correct timing
         IsGrounded();
-        Coyote();
+
+        if (mode == MovementMode.Platformer)
+            Coyote();
 
         Move();
-
-        // Use the buffered input or a coyote + instant-input jump
-        if (coyoteTimeCounter > 0f && jumpBufferCounter > 0f)
-            Jump();
-
-        VariableJumpHeight();
-        BetterFalling();
+        HandleJump();
+        HandleGravity();
     }
 
     void Move()
@@ -108,8 +143,13 @@ public class Movement : MonoBehaviour
             case MovementMode.Arcade:
                 ArcadeMove();
                 break;
+
             case MovementMode.Platformer:
                 PlatformerMove();
+                break;
+
+            case MovementMode.Physics:
+                PhysicsMove();
                 break;
         }
     }
@@ -121,32 +161,93 @@ public class Movement : MonoBehaviour
 
     void PlatformerMove()
     {
-        float targetSpeed = moveInput * moveSpeed;
-        float speedDiff = targetSpeed - rb.linearVelocityX;
-        rb.AddForce(Vector2.right * speedDiff * accelRate);
-
-        //Clamp the velocity to the max speed
-        float newVelocityX = Mathf.Clamp(rb.linearVelocityX, -moveSpeed, moveSpeed);
-        rb.linearVelocity = new Vector2(newVelocityX, rb.linearVelocityY);
-        Debug.Log(speedDiff);
+        rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocityY);
     }
 
-    void Jump()
+    void PhysicsMove()
     {
-        //rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
-        rb.linearVelocity = new Vector2(rb.linearVelocityX, jumpForce);
-        //jumpRequested = false;
-        coyoteTimeCounter = 0f; // Reset coyote time on jump
-        jumpBufferCounter = 0f; // Clear jump buffer on jump
+        rb.AddForce(Vector2.right * moveInput * accelRate);
 
-        Debug.Log("Jump!");
+        //Clamp the velocity to prevent exceeding max speed only
+        if (Mathf.Abs(rb.linearVelocityX) > moveSpeed)
+        {
+            float clampedVelocityX = Mathf.Clamp(rb.linearVelocityX, -moveSpeed, moveSpeed);
+            rb.linearVelocity = new Vector2(clampedVelocityX, rb.linearVelocityY);
+        }
     }
 
-    void VariableJumpHeight()
+    void HandleJump()
     {
-        if (jumpReleased && rb.linearVelocity.y > 0)
-            rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * 0.5f);
+        switch (mode)
+        {
+            case MovementMode.Arcade:
+                SimpleJump();
+                break;
+
+            case MovementMode.Platformer:
+                AdvancedJump();
+                break;
+
+            case MovementMode.Physics:
+                PhysicsJump();
+                break;
+        }
+    }
+
+    void SimpleJump()
+    {
+        if (jumpRequested)
+        {
+            if (isGrounded)
+                rb.linearVelocity = new Vector2(rb.linearVelocityX, jumpForce);
+            jumpRequested = false; // Reset jump request after processing
+        }
+    }
+
+    void AdvancedJump()
+    {
+        // Jump trigger
+        if (coyoteTimeCounter > 0f && jumpBufferCounter > 0f)
+        {
+            rb.linearVelocity = new Vector2(rb.linearVelocityX, jumpForce);
+
+            coyoteTimeCounter = 0f;
+            jumpBufferCounter = 0f;
+        }
+
+        // Variable jump (cut jump)
+        if (jumpReleased && rb.linearVelocityY > 0)
+        {
+            rb.linearVelocity = new Vector2(rb.linearVelocityX, rb.linearVelocityY * 0.5f);
+        }
+
+        jumpRequested = false; // Reset jump request (for the other 2 modes) after processing
         jumpReleased = false;
+    }
+
+    void PhysicsJump()
+    {
+        if (jumpRequested)
+        {
+            if (isGrounded)
+                rb.linearVelocity = new Vector2(rb.linearVelocityX, jumpForce);
+            jumpRequested = false; // Reset jump request after processing
+        }
+    }
+
+    void HandleGravity()
+    {
+        switch (mode)
+        {
+            case MovementMode.Platformer:
+                BetterFalling();
+                break;
+
+            case MovementMode.Arcade:
+            case MovementMode.Physics:
+                rb.gravityScale = baseGravity;
+                break;
+        }
     }
 
     void BetterFalling()
@@ -186,7 +287,6 @@ public class Movement : MonoBehaviour
         Gizmos.color = isGrounded ? Color.green : Color.yellow;
         Gizmos.DrawWireCube(start, size3);
         Gizmos.DrawWireCube(end, size3);
-
 
         Gizmos.color = Color.cyan;
         Gizmos.DrawLine(start, end);
